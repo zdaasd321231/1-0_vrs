@@ -160,6 +160,62 @@ async def get_vnc_connection_info(session_id: str):
 # Include the router in the main app
 app.include_router(api_router)
 
+# Mount noVNC static files
+app.mount("/vnc-static", StaticFiles(directory="/app/noVNC"), name="vnc-static")
+
+@app.get("/vnc/{session_id}")
+async def serve_vnc_client(session_id: str):
+    """Serve noVNC client for a specific session"""
+    session = await db.vnc_sessions.find_one({"id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="VNC session not found")
+    
+    # Start websockify for this session if not running
+    websockify_cmd = f"cd /app/noVNC && websockify --web . 0.0.0.0:{session['websocket_port']} localhost:{session['port']} > websockify_{session['display_id']}.log 2>&1 &"
+    subprocess.run(websockify_cmd, shell=True)
+    
+    vnc_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>VNC Client - Display {session['display_id']}</title>
+        <meta charset="utf-8">
+    </head>
+    <body>
+        <h2>🖥️ VNC Remote Desktop - Display {session['display_id']}</h2>
+        <p><strong>Статус:</strong> {session['status']}</p>
+        <p><strong>Разрешение:</strong> Настраивается при подключении</p>
+        <p><strong>Пароль:</strong> vncpass</p>
+        
+        <div style="margin: 20px 0;">
+            <h3>Способы подключения:</h3>
+            <ul>
+                <li><strong>Локальный VNC клиент:</strong> vnc://localhost:{session['port']}</li>
+                <li><strong>WebSocket URL:</strong> ws://localhost:{session['websocket_port']}</li>
+            </ul>
+        </div>
+        
+        <div style="margin: 20px 0; padding: 15px; background: #f0f8ff; border-radius: 5px;">
+            <h3>🌐 noVNC Web Client</h3>
+            <p>Для веб-доступа к VNC используйте локальный URL:</p>
+            <code style="background: #e6e6e6; padding: 5px; border-radius: 3px;">
+                http://localhost:{session['websocket_port']}/vnc.html
+            </code>
+            <br><br>
+            <p><em>Примечание: WebSocket порты доступны только локально по соображениям безопасности</em></p>
+        </div>
+        
+        <div style="margin: 20px 0;">
+            <button onclick="history.back()" style="background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
+                ← Назад к VNC Manager
+            </button>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=vnc_html)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
