@@ -151,8 +151,9 @@ async def get_vnc_connection_info(session_id: str):
     
     return {
         "vnc_url": f"vnc://localhost:{session['port']}",
-        "websocket_url": f"wss://{base_url.replace('https://', '')}:{session['websocket_port']}",
-        "novnc_url": f"{base_url}:{session['websocket_port']}/vnc.html?host={base_url.replace('https://', '')}&port={session['websocket_port']}&password=vncpass",
+        "websocket_url": f"ws://localhost:{session['websocket_port']}",
+        "novnc_url": f"{base_url}/vnc/{session_id}",
+        "local_novnc_url": f"http://localhost:{session['websocket_port']}/vnc.html",
         "display_id": session['display_id'],
         "password": "vncpass"
     }
