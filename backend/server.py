@@ -66,6 +66,92 @@ async def get_status_checks():
     status_checks = await db.status_checks.find().to_list(1000)
     return [StatusCheck(**status_check) for status_check in status_checks]
 
+@api_router.post("/vnc/sessions", response_model=VNCSession)
+async def create_vnc_session(session_data: VNCSessionCreate):
+    """Создать новую VNC сессию"""
+    try:
+        display_port = 5900 + session_data.display_id
+        websocket_port = 6080 + session_data.display_id - 1
+        
+        # Запустить VNC сервер
+        cmd = f"export USER=root && vncserver :{session_data.display_id} -geometry {session_data.geometry} -depth 24"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            # Возможно сессия уже существует, попробуем убить и пересоздать
+            subprocess.run(f"export USER=root && vncserver -kill :{session_data.display_id}", shell=True)
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        
+        # Запустить websockify для этой сессии
+        websockify_cmd = f"cd /app/noVNC && websockify --web . {websocket_port} localhost:{display_port} > websockify_{session_data.display_id}.log 2>&1 &"
+        subprocess.run(websockify_cmd, shell=True)
+        
+        session = VNCSession(
+            display_id=session_data.display_id,
+            port=display_port,
+            websocket_port=websocket_port,
+            status="active"
+        )
+        
+        # Сохранить в базу данных
+        await db.vnc_sessions.insert_one(session.dict())
+        
+        return session
+    except Exception as e:
+        logger.error(f"Error creating VNC session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create VNC session: {str(e)}")
+
+@api_router.get("/vnc/sessions", response_model=List[VNCSession])
+async def get_vnc_sessions():
+    """Получить список всех VNC сессий"""
+    sessions = await db.vnc_sessions.find().to_list(1000)
+    return [VNCSession(**session) for session in sessions]
+
+@api_router.get("/vnc/sessions/{session_id}")
+async def get_vnc_session(session_id: str):
+    """Получить информацию о конкретной VNC сессии"""
+    session = await db.vnc_sessions.find_one({"id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="VNC session not found")
+    return VNCSession(**session)
+
+@api_router.delete("/vnc/sessions/{session_id}")
+async def delete_vnc_session(session_id: str):
+    """Удалить VNC сессию"""
+    session = await db.vnc_sessions.find_one({"id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="VNC session not found")
+    
+    try:
+        # Остановить VNC сервер
+        subprocess.run(f"export USER=root && vncserver -kill :{session['display_id']}", shell=True)
+        
+        # Остановить websockify
+        subprocess.run(f"pkill -f 'websockify.*{session['websocket_port']}'", shell=True)
+        
+        # Удалить из базы данных
+        await db.vnc_sessions.delete_one({"id": session_id})
+        
+        return {"message": "VNC session deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting VNC session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete VNC session: {str(e)}")
+
+@api_router.get("/vnc/connect/{session_id}")
+async def get_vnc_connection_info(session_id: str):
+    """Получить информацию для подключения к VNC сессии"""
+    session = await db.vnc_sessions.find_one({"id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="VNC session not found")
+    
+    return {
+        "vnc_url": f"vnc://localhost:{session['port']}",
+        "websocket_url": f"ws://localhost:{session['websocket_port']}",
+        "novnc_url": f"http://localhost:{session['websocket_port']}/vnc.html?host=localhost&port={session['websocket_port']}&password=vncpassword",
+        "display_id": session['display_id'],
+        "password": "vncpass"  # Простой пароль для демонстрации
+    }
+
 # Include the router in the main app
 app.include_router(api_router)
 
