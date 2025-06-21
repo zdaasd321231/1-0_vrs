@@ -37,6 +37,18 @@ class StatusCheck(BaseModel):
 class StatusCheckCreate(BaseModel):
     client_name: str
 
+class VNCSession(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    display_id: int
+    port: int
+    websocket_port: int
+    status: str = "active"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class VNCSessionCreate(BaseModel):
+    display_id: int = Field(default=1, ge=1, le=99)
+    geometry: str = Field(default="1024x768")
+
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
 async def root():
