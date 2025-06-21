@@ -144,12 +144,15 @@ async def get_vnc_connection_info(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="VNC session not found")
     
+    # Получаем базовый URL из переменных окружения
+    base_url = "https://3d99d134-9e1a-456a-a667-5f664942b8da.preview.emergentagent.com"
+    
     return {
         "vnc_url": f"vnc://localhost:{session['port']}",
-        "websocket_url": f"ws://localhost:{session['websocket_port']}",
-        "novnc_url": f"http://localhost:{session['websocket_port']}/vnc.html?host=localhost&port={session['websocket_port']}&password=vncpassword",
+        "websocket_url": f"wss://{base_url.replace('https://', '')}:{session['websocket_port']}",
+        "novnc_url": f"{base_url}:{session['websocket_port']}/vnc.html?host={base_url.replace('https://', '')}&port={session['websocket_port']}&password=vncpass",
         "display_id": session['display_id'],
-        "password": "vncpass"  # Простой пароль для демонстрации
+        "password": "vncpass"
     }
 
 # Include the router in the main app
